@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import type { Artist, Challenge, DailyEntry, PathStep } from '@onthefeat/shared';
 import { getDb } from '../cache.ts';
+import { normName } from '../deezer/normalize.ts';
+import { SEED_ARTISTS } from '../data/seed-artists.ts';
 import { generateFamousPair, generatePair, hashSeed, rng } from './generator.ts';
 import { shortestPath } from './graph.ts';
 
@@ -116,6 +118,22 @@ async function generateRandom(): Promise<string | null> {
     .prepare('INSERT INTO random_challenges (token, data, created_at) VALUES (?, ?, ?)')
     .run(token, JSON.stringify({ start: pair.start, target: pair.target, path: pair.path }), Date.now());
   return token;
+}
+
+/** Usuwa z puli pary, których końce wypadły z listy znanych wykonawców (np. po jej edycji). */
+export function purgeStalePool(): number {
+  const known = new Set(SEED_ARTISTS.map(normName));
+  const rows = getDb().prepare('SELECT token, data FROM random_challenges').all() as { token: string; data: string }[];
+  const del = getDb().prepare('DELETE FROM random_challenges WHERE token = ?');
+  let removed = 0;
+  for (const r of rows) {
+    const d = JSON.parse(r.data) as Stored;
+    if (!known.has(normName(d.start.name)) || !known.has(normName(d.target.name))) {
+      del.run(r.token);
+      removed++;
+    }
+  }
+  return removed;
 }
 
 export function refillPool(): Promise<void> {

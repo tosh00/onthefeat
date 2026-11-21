@@ -33,6 +33,35 @@ export function toTrackResult(t: DzTrack): TrackResult {
   };
 }
 
+/**
+ * Deezer szuka "rozmyto" po tytule i wykonawcy naraz, więc filtrujemy sami. Każde wpisane słowo
+ * musi pasować do tytułu albo do głównego wykonawcy – ale tylko NIEODKRYTEGO. Dzięki temu wpisanie
+ * nazwy odkrytego wykonawcy nie odsłania jego katalogu. Co najmniej jedno słowo musi trafić w tytuł.
+ * Dokładne trafienia tytułu idą na górę.
+ */
+export function rankByTitle(tracks: DzTrack[], query: string, discovered: Artist[] = []): DzTrack[] {
+  const q = normName(query);
+  const words = q.split(' ').filter(Boolean);
+  const score = (t: DzTrack) => {
+    const title = normName(cleanTitle(t.title) || t.title);
+    const artistName = isBlocked(toArtist(t.artist), discovered) ? '' : normName(t.artist.name);
+    let inTitle = 0;
+    for (const w of words) {
+      if (title.includes(w)) inTitle++;
+      else if (!artistName.includes(w)) return -1;
+    }
+    if (!inTitle) return -1;
+    if (title === q || inTitle < words.length) return inTitle === words.length ? 3 : 2.5;
+    if (title.startsWith(q)) return 2;
+    return 1;
+  };
+  return tracks
+    .map((t, i) => ({ t, s: score(t), i }))
+    .filter((x) => x.s >= 0)
+    .sort((a, b) => b.s - a.s || a.i - b.i)
+    .map((x) => x.t);
+}
+
 function dedupeTracks(tracks: DzTrack[]): DzTrack[] {
   const seen = new Set<string>();
   return tracks.filter((t) => {
@@ -47,8 +76,18 @@ export const searchRoutes = new Hono()
   .get('/search/tracks', async (c) => {
     const q = (c.req.query('q') ?? '').trim();
     if (q.length < MIN_QUERY) return c.json([]);
-    const res = await deezer.searchTracksByTitle(q, 25);
-    return c.json(dedupeTracks(res.data).slice(0, MAX_RESULTS).map(toTrackResult));
+    const [res, discovered] = await Promise.all([
+      deezer.searchTracks(q, 100),
+      loadArtists(parseIds(c.req.query('discovered'))),
+    ]);
+    // Popularne tytuły ("Bang") zasypują utwory odkrytych wykonawców, więc dokładamy dopasowania
+    // z ich (cachowanych) topów na górę listy. Gracz i tak musi znać tytuł – goście pozostają ukryci.
+    const tops = await Promise.all(
+      discovered.slice(0, 30).map((a) => deezer.artistTop(a.id, 100).then((r) => r.data, () => [])),
+    );
+    const fromDiscovered = rankByTitle(tops.flat(), q, discovered);
+    const general = rankByTitle(res.data, q, discovered);
+    return c.json(dedupeTracks([...fromDiscovered, ...general]).slice(0, MAX_RESULTS).map(toTrackResult));
   })
   .get('/search/artists', async (c) => {
     const q = (c.req.query('q') ?? '').trim();
@@ -70,7 +109,9 @@ export const searchRoutes = new Hono()
     if (isBlocked(artist, discovered)) {
       return c.json({ error: 'Nie można przeglądać utworów odkrytego wykonawcy' }, 403);
     }
-    const [top, byName] = await Promise.all([deezer.artistTop(id, 100), deezer.searchTracksByArtist(artist.name, 50)]);
-    const tracks = dedupeTracks([...top.data, ...byName.data]);
+    const [top, byName] = await Promise.all([deezer.artistTop(id, 100), deezer.searchTracks(artist.name, 100)]);
+    const key = normName(artist.name);
+    const own = byName.data.filter((t) => normName(t.artist.name) === key);
+    const tracks = dedupeTracks([...top.data, ...own]);
     return c.json({ artist, tracks: tracks.slice(0, 80).map(toTrackResult) });
   });

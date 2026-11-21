@@ -34,7 +34,8 @@ export const api = {
   daily: () => call<Challenge>('/challenge/daily'),
   random: (exclude: string[]) => call<Challenge>(`/challenge/random?${qs({ exclude: exclude.join(',') })}`),
   solution: (id: string) => call<{ path: PathStep[] | null }>(`/challenge/${encodeURIComponent(id)}/solution`),
-  searchTracks: (q: string, signal?: AbortSignal) => call<TrackResult[]>(`/search/tracks?${qs({ q })}`, { signal }),
+  searchTracks: (q: string, discovered: Artist[], signal?: AbortSignal) =>
+    call<TrackResult[]>(`/search/tracks?${qs({ q, discovered: ids(discovered) })}`, { signal }),
   searchArtists: (q: string, discovered: Artist[], signal?: AbortSignal) =>
     call<Artist[]>(`/search/artists?${qs({ q, discovered: ids(discovered) })}`, { signal }),
   artistTracks: (id: number, discovered: Artist[]) =>

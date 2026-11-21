@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MoveFailReason, TrackResult } from '@onthefeat/shared';
 import { api } from '../api.ts';
-import { DiscoveredList, Matchup } from '../components/ArtistChips.tsx';
+import { Matchup } from '../components/ArtistChips.tsx';
 import { PlayerPath } from '../components/PathGraph.tsx';
+import { ProgressGraph } from '../components/ProgressGraph.tsx';
 import { SearchBox } from '../components/SearchBox.tsx';
 import { WinScreen } from '../components/WinScreen.tsx';
 import { markRandomPlayed, playedRandom, useGame } from '../state/gameStore.ts';
@@ -56,7 +57,6 @@ export function Game() {
   }, [state, dispatch]);
 
   const usedTrackIds = useMemo(() => new Set(state?.steps.map((s) => s.track.id)), [state?.steps]);
-  const latest = useMemo(() => new Set(state?.steps.at(-1)?.newArtists.map((a) => a.id)), [state?.steps]);
 
   const pick = async (t: TrackResult) => {
     if (!state || busy) return;
@@ -110,6 +110,9 @@ export function Game() {
               Ruchy: <strong>{state.steps.length}</strong>
             </span>
             <span>
+              Odkryci: <strong>{state.discovered.length}</strong>
+            </span>
+            <span>
               Błędy: <strong>{state.mistakes}</strong>
             </span>
             {state.status === 'playing' && (
@@ -121,26 +124,24 @@ export function Game() {
 
           {toast && <p className={`toast toast-${toast.kind}`}>{toast.text}</p>}
 
-          {state.status === 'playing' ? (
-            <div className="layout">
-              <SearchBox discovered={state.discovered} busy={busy} usedTrackIds={usedTrackIds} onPick={pick} />
-              <aside>
-                <DiscoveredList artists={state.discovered} latest={latest} />
-                {state.steps.length > 0 && <h2>Twoja ścieżka</h2>}
-                <PlayerPath steps={state.steps} />
-              </aside>
-            </div>
-          ) : (
-            <>
-              <WinScreen state={state} onNext={mode === 'random' ? () => load('random') : undefined} />
-              {state.steps.length > 0 && (
-                <section>
-                  <h2>Twoja ścieżka</h2>
-                  <PlayerPath steps={state.steps} />
-                </section>
-              )}
-            </>
+          {state.status !== 'playing' && (
+            <WinScreen state={state} onNext={mode === 'random' ? () => load('random') : undefined} />
           )}
+
+          <div className={`layout ${state.status !== 'playing' ? 'layout-done' : ''}`}>
+            {state.status === 'playing' && (
+              <SearchBox discovered={state.discovered} busy={busy} usedTrackIds={usedTrackIds} onPick={pick} />
+            )}
+            <section className="progress">
+              <ProgressGraph state={state} />
+              {state.steps.length > 0 && (
+                <details className="history">
+                  <summary>Historia ruchów ({state.steps.length})</summary>
+                  <PlayerPath steps={state.steps} />
+                </details>
+              )}
+            </section>
+          </div>
         </main>
       )}
     </div>

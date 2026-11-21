@@ -39,7 +39,7 @@ export const FAMOUS_ARTISTS = [
   'Helena Vondrackova',
 ];
 
-/** Dodatkowe punkty startowe trybu losowego (obok FAMOUS_ARTISTS). */
+/** Pula trybu losowego: FAMOUS_ARTISTS plus nieco szersza lista rozpoznawalnych wykonawców (oba końce pary). */
 export const SEED_ARTISTS = [
   ...FAMOUS_ARTISTS,
   'Ralph Kaminski',
@@ -57,6 +57,3 @@ export const SEED_ARTISTS = [
   'Smolasty',
   'Sobel',
 ];
-
-/** Minimalna łączna liczba fanów na Deezerze (polscy wykonawcy mają ich tam mało, np. Maryla ~12 tys.), by wykonawca nadawał się na cel trybu losowego. */
-export const MIN_FANS = 3000;

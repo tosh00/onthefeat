@@ -1,7 +1,7 @@
 import type { Artist, PathStep } from '@onthefeat/shared';
-import { normName, toArtist } from '../deezer/normalize.ts';
-import { FAMOUS_ARTISTS, MIN_FANS, SEED_ARTISTS } from '../data/seed-artists.ts';
-import { neighbors, shortestPath, totalFans, type NeighborFn } from './graph.ts';
+import { toArtist } from '../deezer/normalize.ts';
+import { FAMOUS_ARTISTS, SEED_ARTISTS } from '../data/seed-artists.ts';
+import { neighbors, shortestPath, type NeighborFn } from './graph.ts';
 import { resolveArtistByName } from './participants.ts';
 
 export interface GeneratedPair {
@@ -31,15 +31,11 @@ export function hashSeed(s: string): number {
 export interface GenOptions {
   random?: () => number;
   neighborFn?: NeighborFn;
-  /** Czy wykonawca jest wystarczająco rozpoznawalny (domyślnie: nb_fan z Deezera). */
-  isKnown?: (a: Artist) => Promise<boolean>;
-  seeds?: () => Promise<Artist[]>;
+  /** Pula wykonawców, z której losowane są OBA końce pary. */
+  pool?: () => Promise<Artist[]>;
+  /** Minimalna długość najkrótszej znanej ścieżki (2 = brak bezpośredniego połączenia). */
   minLength?: number;
   attempts?: number;
-}
-
-async function defaultIsKnown(a: Artist): Promise<boolean> {
-  return (await totalFans(a)) >= MIN_FANS;
 }
 
 const resolvedLists = new Map<string[], Promise<Artist[]>>();
@@ -54,57 +50,17 @@ function resolveList(names: string[]): Promise<Artist[]> {
   }
   return resolvedLists.get(names)!;
 }
-const defaultSeeds = () => resolveList(SEED_ARTISTS);
+/** Wyzwanie dnia: tylko wykonawcy, o których „każdy słyszał”. */
 export const famousArtists = () => resolveList(FAMOUS_ARTISTS);
+/** Tryb losowy: znani wykonawcy plus nieco szersza lista rozpoznawalnych. */
+export const knownArtists = () => resolveList(SEED_ARTISTS);
 
 /**
- * Losowy spacer po grafie współpracy (4–6 kroków, bez powrotów), a potem BFS
- * od startu do końca spaceru. Para jest akceptowana, gdy najkrótsza znana
- * ścieżka ma co najmniej `minLength` kroków, a cel jest rozpoznawalny.
+ * Losuje parę znanych wykonawców z puli (oba końce z listy) bez bezpośredniego połączenia –
+ * najkrótsza znana ścieżka ma co najmniej `minLength` (domyślnie 2) utwory. Pośrednicy mogą być dowolni.
  */
 export async function generatePair(opts: GenOptions = {}): Promise<GeneratedPair | null> {
-  const {
-    random = Math.random,
-    neighborFn = neighbors,
-    isKnown = defaultIsKnown,
-    seeds = defaultSeeds,
-    minLength = 3,
-    attempts = 8,
-  } = opts;
-  const pool = await seeds();
-  if (!pool.length) return null;
-
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    const start = pool[Math.floor(random() * pool.length)];
-    const steps = 4 + Math.floor(random() * 3);
-    const visited = new Set([normName(start.name)]);
-    let cur = start;
-
-    for (let i = 0; i < steps; i++) {
-      // Preferujemy popularne utwory: losujemy z górnej połowy listy sąsiadów.
-      const options = (await neighborFn(cur)).filter((e) => !visited.has(normName(e.artist.name)));
-      if (!options.length) break;
-      const top = options.slice(0, Math.max(3, Math.ceil(options.length / 2)));
-      const pick = top[Math.floor(random() * top.length)];
-      visited.add(normName(pick.artist.name));
-      cur = pick.artist;
-    }
-    if (cur === start || !(await isKnown(cur))) continue;
-
-    const path = await shortestPath(start, cur, { neighborFn });
-    if (path && path.length >= minLength) return { start, target: cur, path };
-  }
-  return null;
-}
-
-/**
- * Para do wyzwania dnia: oba końce z listy bardzo znanych wykonawców (FAMOUS_ARTISTS),
- * bez bezpośredniego połączenia – najkrótsza znana ścieżka ma co najmniej `minLength` (domyślnie 2) utwory.
- */
-export async function generateFamousPair(
-  opts: Pick<GenOptions, 'random' | 'neighborFn' | 'attempts' | 'minLength'> & { pool?: () => Promise<Artist[]> } = {},
-): Promise<GeneratedPair | null> {
-  const { random = Math.random, neighborFn = neighbors, attempts = 15, minLength = 2, pool = famousArtists } = opts;
+  const { random = Math.random, neighborFn = neighbors, attempts = 15, minLength = 2, pool = knownArtists } = opts;
   const artists = await pool();
   if (artists.length < 2) return null;
 
@@ -118,3 +74,6 @@ export async function generateFamousPair(
   }
   return null;
 }
+
+/** Para do wyzwania dnia: oba końce z FAMOUS_ARTISTS. */
+export const generateFamousPair = (opts: GenOptions = {}) => generatePair({ pool: famousArtists, ...opts });

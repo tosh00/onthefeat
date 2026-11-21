@@ -130,13 +130,3 @@ export async function shortestPath(
   }
   return null;
 }
-
-/** Łączna liczba fanów wszystkich kont wykonawcy (miara rozpoznawalności). */
-export async function totalFans(artist: Artist): Promise<number> {
-  const key = normName(artist.name);
-  const res = await deezer.searchArtists(artist.name, 25);
-  return res.data
-    .filter((a) => normName(a.name) === key)
-    .reduce((sum, a) => sum + (a.nb_fan ?? 0), 0);
-}
-

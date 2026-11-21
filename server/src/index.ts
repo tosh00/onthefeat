@@ -2,7 +2,7 @@ import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { DeezerError } from './deezer/client.ts';
-import { refillPool, warmDaily } from './game/challenges.ts';
+import { purgeStalePool, refillPool, warmDaily } from './game/challenges.ts';
 import { adminRoutes } from './routes/admin.ts';
 import { gameRoutes } from './routes/game.ts';
 import { searchRoutes } from './routes/search.ts';
@@ -29,6 +29,8 @@ if (!process.env.VITEST) {
   serve({ fetch: app.fetch, port }, () => {
     console.log(`Serwer: http://localhost:${port}`);
     if (!process.env.ADMIN_PASSWORD) console.warn('Brak ADMIN_PASSWORD – panel admina wyłączony.');
+    const purged = purgeStalePool();
+    if (purged) console.log(`Usunięto ${purged} nieaktualnych losowych par.`);
     void warmDaily().then(refillPool);
     setInterval(() => void warmDaily(), 60 * 60 * 1000);
   });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Artist } from '@onthefeat/shared';
 import { shortestPath, type Edge } from '../src/game/graph.ts';
-import { generateFamousPair, rng } from '../src/game/generator.ts';
+import { generatePair, rng } from '../src/game/generator.ts';
 
 // A - B - C - D - E, plus skrót A - X - E
 const names = ['A', 'B', 'C', 'D', 'E', 'X', 'F'];
@@ -27,12 +27,14 @@ describe('shortestPath', () => {
   });
 });
 
-describe('generateFamousPair', () => {
+describe('generatePair', () => {
   it('nie zwraca par połączonych bezpośrednio', async () => {
     for (let seed = 1; seed < 20; seed++) {
-      const p = await generateFamousPair({ random: rng(seed), neighborFn, pool: async () => Object.values(art) });
+      const p = await generatePair({ random: rng(seed), neighborFn, pool: async () => Object.values(art) });
       expect(p).not.toBeNull();
       expect(p!.path.length).toBeGreaterThanOrEqual(2);
+      expect(names).toContain(p!.start.name);
+      expect(names).toContain(p!.target.name);
     }
   });
 });

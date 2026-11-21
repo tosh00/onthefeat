@@ -36,7 +36,7 @@ npm workspaces: `shared/` (same typy DTO, importowane jako `@onthefeat/shared`),
 **Zasady gry** (`game/validate.ts`): ruch jest poprawny, gdy w utworze występuje któryś z już odkrytych wykonawców (dowolny, nie tylko ostatni) i ktoś nowy. Walidacja jest bezstanowa: klient wysyła listę odkrytych id.
 
 **Uczciwość wyszukiwania** to kluczowy wymóg produktu. Gracz nie może wpisać odkrytego wykonawcy i przeglądać jego utworów w poszukiwaniu połączeń:
-- `/api/search/tracks` szuka tylko w tytułach (`track:"..."`), a wyniki pokazują tytuł oczyszczony z „feat.” i tylko głównego wykonawcę;
+- `/api/search/tracks` używa zwykłego wyszukiwania Deezera (składnia `track:"..."`/`artist:"..."` jest przez Deezera ignorowana) i filtruje wyniki w `rankByTitle`: każde słowo musi pasować do tytułu albo do NIEodkrytego głównego wykonawcy, a co najmniej jedno do tytułu. Wyniki pokazują tytuł oczyszczony z „feat.” i tylko głównego wykonawcę;
 - `/api/search/artists` pomija odkrytych (także duplikaty i nazwy złożone zawierające odkrytego);
 - `/api/artist/:id/tracks` zwraca 403 dla odkrytego wykonawcy;
 - minimum 3 znaki, maksymalnie 10 wyników.
@@ -45,7 +45,7 @@ npm workspaces: `shared/` (same typy DTO, importowane jako `@onthefeat/shared`),
 - Graf współpracy budowany jest leniwie z `/artist/{id}/top` i cachowany (`nb:<nazwa>`). Pomija wykonawców złożonych, więc jest podzbiorem ruchów akceptowanych przez walidację.
 - `shortestPath` to dwukierunkowy BFS z budżetem rozwinięć, więc `optimalLength` znaczy „najkrótsza znana ścieżka”.
 - Wyzwanie dnia: wpis admina albo `generateFamousPair`. Oba końce pochodzą z ręcznej listy bardzo znanych wykonawców (`data/seed-artists.ts#FAMOUS_ARTISTS`) i nie mogą być połączone bezpośrednio (ścieżka ≥ 2). Ziarno PRNG to data (Europe/Warsaw), wynik zapisuje się w `daily_challenges`. Serwer co godzinę przygotowuje w tle wyzwanie na dziś i jutro (`warmDaily`), bo na zimnym cache generowanie trwa nawet ~80 s.
-- Tryb losowy: losowy spacer po grafie od `SEED_ARTISTS`. Gotowe pary leżą w puli `random_challenges`, uzupełnianej w tle.
+- Tryb losowy: ten sam `generatePair`, ale z szerszej puli `SEED_ARTISTS` (oba końce z listy, ścieżka ≥ 2). Gotowe pary leżą w puli `random_challenges`, uzupełnianej w tle. Przy starcie `purgeStalePool` usuwa pary, których końców nie ma już na liście, więc listę można bezpiecznie edytować.
 - Przyszłe wyzwania dnia i ich rozwiązania są ukryte przed graczami (403).
 
-**Klient**: bez routera (`main.tsx` sprawdza, czy ścieżka to `/admin`). Stan gry trzyma `state/gameStore.ts` (reducer), zapisywany w `localStorage` pod `onthefeat:game:<challengeId>`.
+**Klient**: bez routera (`main.tsx` sprawdza, czy ścieżka to `/admin`). Stan gry trzyma `state/gameStore.ts` (reducer), zapisywany w `localStorage` pod `onthefeat:game:<challengeId>`. Postęp pokazuje `components/ProgressGraph.tsx` (`react-force-graph-2d`): węzły to wykonawcy (klucz = znormalizowana nazwa, jak na serwerze), krawędzie to utwory, a start i cel są przypięte (`fx`/`fy`) na przeciwnych krańcach. `SearchBox` to jedno pole: utwory i nieodkryci wykonawcy naraz, a klik w wykonawcę zawęża pole do jego utworów.

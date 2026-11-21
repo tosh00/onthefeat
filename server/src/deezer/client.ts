@@ -94,8 +94,7 @@ export const deezer = {
     get<DzList<DzTrack>>(`/artist/${id}/top?limit=${limit}`, 7 * DAY),
   searchArtists: (query: string, limit = 15) =>
     get<DzList<DzArtist>>(`/search/artist?q=${q(query)}&limit=${limit}`),
-  searchTracksByTitle: (title: string, limit = 25) =>
-    get<DzList<DzTrack>>(`/search/track?q=${q(`track:"${title.replace(/"/g, '')}"`)}&limit=${limit}`),
-  searchTracksByArtist: (name: string, limit = 50) =>
-    get<DzList<DzTrack>>(`/search/track?q=${q(`artist:"${name.replace(/"/g, '')}"`)}&limit=${limit}`),
+  // Uwaga: Deezer ignoruje obecnie składnię `track:"..."` / `artist:"..."` (szuka dosłownie słowa "track"),
+  // więc szukamy zwykłym zapytaniem i filtrujemy wyniki u siebie (routes/search.ts).
+  searchTracks: (query: string, limit = 100) => get<DzList<DzTrack>>(`/search/track?q=${q(query)}&limit=${limit}`),
 };

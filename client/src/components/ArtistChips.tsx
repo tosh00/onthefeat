@@ -29,21 +29,3 @@ export function Matchup({ start, target, won }: { start: Artist; target: Artist;
     </div>
   );
 }
-
-export function DiscoveredList({ artists, latest }: { artists: Artist[]; latest: Set<number> }) {
-  return (
-    <div className="discovered">
-      <h2>
-        Odkryci wykonawcy <span className="count">{artists.length}</span>
-      </h2>
-      <ul>
-        {artists.map((a) => (
-          <li key={a.id} className={`chip ${latest.has(a.id) ? 'chip-new' : ''}`}>
-            <Avatar artist={a} size={24} />
-            {a.name}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
