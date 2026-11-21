@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AdminPreview, Artist, DailyEntry } from '@onthefeat/shared';
+import { CATEGORIES, type AdminPreview, type Artist, type Category, type DailyEntry } from '@onthefeat/shared';
 import { adminApi } from '../api.ts';
 import { Avatar } from '../components/ArtistChips.tsx';
 import { SolutionPath } from '../components/PathGraph.tsx';
@@ -75,6 +75,7 @@ export function Admin() {
     const d = new Date(Date.now() + 86400000);
     return d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Warsaw' });
   });
+  const [category, setCategory] = useState<Category>('pl-hits');
   const [start, setStart] = useState<Artist | null>(null);
   const [target, setTarget] = useState<Artist | null>(null);
   const [preview, setPreview] = useState<AdminPreview | null>(null);
@@ -137,13 +138,24 @@ export function Admin() {
     <div className="app admin">
       <h1>Panel admina – wyzwania dnia</h1>
       <p className="muted">
-        Deezer ma zduplikowane konta wykonawców – wybieraj to z największą liczbą fanów. Dni bez wpisu dostają
-        automatycznie parę znanych wykonawców bez bezpośredniego połączenia.
+        Każdy dzień ma osobne wyzwanie w każdej kategorii. Deezer ma zduplikowane konta wykonawców – wybieraj to z
+        największą liczbą fanów. Kategorie bez wpisu dostają automatycznie parę z puli kategorii bez bezpośredniego
+        połączenia (w „Dziczy” – całkowicie losową).
       </p>
 
       <section className="admin-form">
         <label>
           Data <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </label>
+        <label>
+          Kategoria
+          <select value={category} onChange={(e) => setCategory(e.target.value as Category)}>
+            {CATEGORIES.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.emoji} {c.label}
+              </option>
+            ))}
+          </select>
         </label>
         <ArtistPicker label="Start" value={start} onChange={setStart} search={api.artists} />
         <ArtistPicker label="Cel" value={target} onChange={setTarget} search={api.artists} />
@@ -151,8 +163,8 @@ export function Admin() {
           <button disabled={!start || !target || busy} className="secondary" onClick={() => run(() => api.preview(start!.id, target!.id))}>
             Sprawdź ścieżkę
           </button>
-          <button disabled={!start || !target || busy} onClick={() => run(() => api.save(date, start!.id, target!.id))}>
-            Zapisz na {date}
+          <button disabled={!start || !target || busy} onClick={() => run(() => api.save(date, category, start!.id, target!.id))}>
+            Zapisz na {date} ({CATEGORIES.find((c) => c.id === category)?.label})
           </button>
         </div>
         {busy && <p className="muted">Przeszukuję graf współprac… (może potrwać do minuty)</p>}
@@ -179,6 +191,7 @@ export function Admin() {
           <thead>
             <tr>
               <th>Data</th>
+              <th>Kategoria</th>
               <th>Para</th>
               <th>Ścieżka</th>
               <th>Źródło</th>
@@ -187,15 +200,16 @@ export function Admin() {
           </thead>
           <tbody>
             {list.map((d) => (
-              <tr key={d.date}>
+              <tr key={d.date + d.category}>
                 <td>{d.date}</td>
+                <td>{CATEGORIES.find((c) => c.id === d.category)?.emoji ?? d.category}</td>
                 <td>
                   {d.start.name} → {d.target.name}
                 </td>
                 <td>{d.optimalLength ?? '—'}</td>
                 <td>{d.source === 'admin' ? 'admin' : 'auto'}</td>
                 <td>
-                  <button className="ghost" onClick={() => api.remove(d.date).then(refresh)}>
+                  <button className="ghost" onClick={() => api.remove(d.date, d.category).then(refresh)}>
                     usuń
                   </button>
                 </td>

@@ -99,3 +99,24 @@ export function markRandomPlayed(token: string): void {
     /* ignorujemy */
   }
 }
+
+/** Dzisiejsza data w strefie, w której serwer liczy wyzwania dnia. */
+export const todayWarsaw = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Warsaw' });
+
+const categoryKey = 'onthefeat:category';
+
+export function savedCategory(): string | null {
+  try {
+    return localStorage.getItem(categoryKey);
+  } catch {
+    return null;
+  }
+}
+
+export function saveCategory(c: string): void {
+  try {
+    localStorage.setItem(categoryKey, c);
+  } catch {
+    /* ignorujemy */
+  }
+}

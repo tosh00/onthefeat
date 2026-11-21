@@ -1,3 +1,14 @@
+export const CATEGORIES = [
+  { id: 'rap', label: 'Rap', emoji: '🎤', description: 'Polscy i zagraniczni raperzy' },
+  { id: 'pl-hits', label: 'Polskie hity', emoji: '🇵🇱', description: 'Wykonawcy, których zna cała Polska' },
+  { id: 'foreign-pop', label: 'Zagraniczny pop', emoji: '🌍', description: 'Gwiazdy światowego popu' },
+  { id: 'wild', label: 'Dzicz', emoji: '🎲', description: 'Całkowicie losowi wykonawcy – powodzenia' },
+] as const;
+
+export type Category = (typeof CATEGORIES)[number]['id'];
+
+export const isCategory = (s: unknown): s is Category => CATEGORIES.some((c) => c.id === s);
+
 export interface Artist {
   id: number;
   name: string;
@@ -22,8 +33,9 @@ export interface PathStep {
 }
 
 export interface Challenge {
-  /** "daily:YYYY-MM-DD" albo "random:<token>" */
+  /** "daily:YYYY-MM-DD:<kategoria>" albo "random:<token>" */
   id: string;
+  category: Category;
   date?: string;
   start: Artist;
   target: Artist;
@@ -54,6 +66,7 @@ export interface MoveResult {
 
 export interface DailyEntry {
   date: string;
+  category: Category;
   start: Artist;
   target: Artist;
   optimalLength: number | null;

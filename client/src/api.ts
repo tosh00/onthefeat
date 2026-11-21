@@ -1,6 +1,7 @@
 import type {
   AdminPreview,
   Artist,
+  Category,
   Challenge,
   DailyEntry,
   MoveResult,
@@ -31,15 +32,12 @@ const ids = (artists: Artist[]) => artists.map((a) => a.id).join(',');
 const qs = (params: Record<string, string>) => new URLSearchParams(params).toString();
 
 export const api = {
-  daily: () => call<Challenge>('/challenge/daily'),
-  random: (exclude: string[]) => call<Challenge>(`/challenge/random?${qs({ exclude: exclude.join(',') })}`),
+  daily: (category: Category) => call<Challenge>(`/challenge/daily?${qs({ category })}`),
+  random: (category: Category, exclude: string[]) =>
+    call<Challenge>(`/challenge/random?${qs({ category, exclude: exclude.join(',') })}`),
   solution: (id: string) => call<{ path: PathStep[] | null }>(`/challenge/${encodeURIComponent(id)}/solution`),
   searchTracks: (q: string, discovered: Artist[], signal?: AbortSignal) =>
     call<TrackResult[]>(`/search/tracks?${qs({ q, discovered: ids(discovered) })}`, { signal }),
-  searchArtists: (q: string, discovered: Artist[], signal?: AbortSignal) =>
-    call<Artist[]>(`/search/artists?${qs({ q, discovered: ids(discovered) })}`, { signal }),
-  artistTracks: (id: number, discovered: Artist[]) =>
-    call<{ artist: Artist; tracks: TrackResult[] }>(`/artist/${id}/tracks?${qs({ discovered: ids(discovered) })}`),
   move: (trackId: number, discovered: Artist[], targetId: number) =>
     call<MoveResult>('/move', {
       method: 'POST',
@@ -55,8 +53,13 @@ export function adminApi(password: string) {
     list: () => call<DailyEntry[]>('/admin/daily', auth),
     preview: (startId: number, targetId: number) =>
       call<AdminPreview>('/admin/preview', { ...auth, method: 'POST', body: JSON.stringify({ startId, targetId }) }),
-    save: (date: string, startId: number, targetId: number) =>
-      call<AdminPreview>(`/admin/daily/${date}`, { ...auth, method: 'PUT', body: JSON.stringify({ startId, targetId }) }),
-    remove: (date: string) => call<{ ok: true }>(`/admin/daily/${date}`, { ...auth, method: 'DELETE' }),
+    save: (date: string, category: Category, startId: number, targetId: number) =>
+      call<AdminPreview>(`/admin/daily/${date}/${category}`, {
+        ...auth,
+        method: 'PUT',
+        body: JSON.stringify({ startId, targetId }),
+      }),
+    remove: (date: string, category: Category) =>
+      call<{ ok: true }>(`/admin/daily/${date}/${category}`, { ...auth, method: 'DELETE' }),
   };
 }

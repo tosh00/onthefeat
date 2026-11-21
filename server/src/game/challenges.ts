@@ -1,9 +1,9 @@
 import { randomBytes } from 'node:crypto';
-import type { Artist, Challenge, DailyEntry, PathStep } from '@onthefeat/shared';
+import { CATEGORIES, isCategory, type Artist, type Category, type Challenge, type DailyEntry, type PathStep } from '@onthefeat/shared';
 import { getDb } from '../cache.ts';
 import { normName } from '../deezer/normalize.ts';
-import { SEED_ARTISTS } from '../data/seed-artists.ts';
-import { generateFamousPair, generatePair, hashSeed, rng } from './generator.ts';
+import { CATEGORY_ARTISTS } from '../data/categories.ts';
+import { generatePair, hashSeed, rng } from './generator.ts';
 import { shortestPath } from './graph.ts';
 
 interface Stored {
@@ -18,117 +18,135 @@ export function today(): string {
 
 export const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
 
-function readDaily(date: string): (Stored & { source: DailyEntry['source'] }) | null {
-  const row = getDb().prepare('SELECT data, source FROM daily_challenges WHERE date = ?').get(date) as
+const dailyId = (date: string, category: Category) => `daily:${date}:${category}`;
+
+// --- Wyzwania dnia: jedno na kategorię ---
+
+function readDaily(date: string, category: Category): (Stored & { source: DailyEntry['source'] }) | null {
+  const row = getDb().prepare('SELECT data, source FROM daily WHERE date = ? AND category = ?').get(date, category) as
     | { data: string; source: DailyEntry['source'] }
     | undefined;
   return row ? { ...(JSON.parse(row.data) as Stored), source: row.source } : null;
 }
 
-function writeDaily(date: string, data: Stored, source: DailyEntry['source']): void {
+function writeDaily(date: string, category: Category, data: Stored, source: DailyEntry['source']): void {
   getDb()
-    .prepare('INSERT OR REPLACE INTO daily_challenges (date, data, source) VALUES (?, ?, ?)')
-    .run(date, JSON.stringify(data), source);
+    .prepare('INSERT OR REPLACE INTO daily (date, category, data, source) VALUES (?, ?, ?, ?)')
+    .run(date, category, JSON.stringify(data), source);
 }
 
 const pending = new Map<string, Promise<Stored | null>>();
 
-/** Wyzwanie dnia: wpis admina, a w jego braku para znanych wykonawców bez bezpośredniego połączenia (ziarno = data). */
-async function ensureDaily(date: string): Promise<Stored | null> {
-  const existing = readDaily(date);
+/** Wpis admina, a w jego braku para wygenerowana dla kategorii (ziarno = data + kategoria, więc powtarzalnie). */
+async function ensureDaily(date: string, category: Category): Promise<Stored | null> {
+  const existing = readDaily(date, category);
   if (existing) return existing;
-  if (!pending.has(date)) {
+  const key = dailyId(date, category);
+  if (!pending.has(key)) {
     pending.set(
-      date,
+      key,
       (async () => {
-        const pair = await generateFamousPair({ random: rng(hashSeed(date)) });
+        const pair = await generatePair(category, { random: rng(hashSeed(key)) });
         if (!pair) return null;
-        const stored = { start: pair.start, target: pair.target, path: pair.path };
         // Admin mógł w międzyczasie ustawić parę – nie nadpisujemy.
-        if (!readDaily(date)) writeDaily(date, stored, 'generated');
-        return readDaily(date);
-      })().finally(() => pending.delete(date)),
+        if (!readDaily(date, category)) writeDaily(date, category, pair, 'generated');
+        return readDaily(date, category);
+      })().finally(() => pending.delete(key)),
     );
   }
-  return pending.get(date)!;
+  return pending.get(key)!;
 }
 
-/** Przygotowuje wyzwanie na dziś i jutro w tle, żeby gracz nie czekał na zimny cache. */
+/** Przygotowuje wyzwania na dziś i jutro (wszystkie kategorie) w tle, żeby gracz nie czekał na zimny cache. */
 export async function warmDaily(): Promise<void> {
   const tomorrow = new Date(Date.now() + 86400000).toLocaleDateString('sv-SE', { timeZone: 'Europe/Warsaw' });
   for (const d of [today(), tomorrow]) {
-    try {
-      await ensureDaily(d);
-    } catch (e) {
-      console.error(`Nie udało się przygotować wyzwania ${d}:`, e);
+    for (const { id: category } of CATEGORIES) {
+      try {
+        await ensureDaily(d, category);
+      } catch (e) {
+        console.error(`Nie udało się przygotować wyzwania ${d} (${category}):`, e);
+      }
     }
   }
 }
 
-const toChallenge = (id: string, s: Stored, date?: string): Challenge => ({
+const toChallenge = (id: string, category: Category, s: Stored, date?: string): Challenge => ({
   id,
+  category,
   date,
   start: s.start,
   target: s.target,
   optimalLength: s.path?.length ?? null,
 });
 
-export async function getDaily(date = today()): Promise<Challenge | null> {
-  const s = await ensureDaily(date);
-  return s && toChallenge(`daily:${date}`, s, date);
+export async function getDaily(category: Category, date = today()): Promise<Challenge | null> {
+  const s = await ensureDaily(date, category);
+  return s && toChallenge(dailyId(date, category), category, s, date);
 }
 
 export function listDaily(): DailyEntry[] {
-  const rows = getDb().prepare('SELECT date, data, source FROM daily_challenges ORDER BY date DESC LIMIT 60').all() as {
-    date: string;
-    data: string;
-    source: DailyEntry['source'];
-  }[];
+  const rows = getDb()
+    .prepare('SELECT date, category, data, source FROM daily ORDER BY date DESC, category LIMIT 200')
+    .all() as { date: string; category: Category; data: string; source: DailyEntry['source'] }[];
   return rows.map((r) => {
     const s = JSON.parse(r.data) as Stored;
-    return { date: r.date, start: s.start, target: s.target, optimalLength: s.path?.length ?? null, source: r.source };
+    return {
+      date: r.date,
+      category: r.category,
+      start: s.start,
+      target: s.target,
+      optimalLength: s.path?.length ?? null,
+      source: r.source,
+    };
   });
 }
 
-export async function setDaily(date: string, start: Artist, target: Artist): Promise<Stored> {
+export async function setDaily(date: string, category: Category, start: Artist, target: Artist): Promise<Stored> {
   const path = await shortestPath(start, target, { budget: 300 });
   const stored = { start, target, path };
-  writeDaily(date, stored, 'admin');
+  writeDaily(date, category, stored, 'admin');
   return stored;
 }
 
-export function deleteDaily(date: string): void {
-  getDb().prepare('DELETE FROM daily_challenges WHERE date = ?').run(date);
+export function deleteDaily(date: string, category: Category): void {
+  getDb().prepare('DELETE FROM daily WHERE date = ? AND category = ?').run(date, category);
 }
 
-// --- Tryb losowy: pula gotowych par uzupełniana w tle ---
+// --- Tryb losowy: pula gotowych par na kategorię, uzupełniana w tle ---
 
-const POOL_TARGET = 8;
+const POOL_TARGET = 5;
 let filling: Promise<void> | null = null;
 
-function poolSize(): number {
-  return (getDb().prepare('SELECT COUNT(*) AS n FROM random_challenges').get() as { n: number }).n;
+function poolSize(category: Category): number {
+  return (getDb().prepare('SELECT COUNT(*) AS n FROM random_pool WHERE category = ?').get(category) as { n: number }).n;
 }
 
-async function generateRandom(): Promise<string | null> {
-  const pair = await generatePair();
+async function generateRandom(category: Category): Promise<string | null> {
+  const pair = await generatePair(category);
   if (!pair) return null;
   const token = randomBytes(6).toString('base64url');
   getDb()
-    .prepare('INSERT INTO random_challenges (token, data, created_at) VALUES (?, ?, ?)')
-    .run(token, JSON.stringify({ start: pair.start, target: pair.target, path: pair.path }), Date.now());
+    .prepare('INSERT INTO random_pool (token, category, data, created_at) VALUES (?, ?, ?, ?)')
+    .run(token, category, JSON.stringify({ start: pair.start, target: pair.target, path: pair.path }), Date.now());
   return token;
 }
 
-/** Usuwa z puli pary, których końce wypadły z listy znanych wykonawców (np. po jej edycji). */
+/** Usuwa z puli pary, których końce wypadły z listy kategorii (np. po jej edycji). Dzicz nie ma listy. */
 export function purgeStalePool(): number {
-  const known = new Set(SEED_ARTISTS.map(normName));
-  const rows = getDb().prepare('SELECT token, data FROM random_challenges').all() as { token: string; data: string }[];
-  const del = getDb().prepare('DELETE FROM random_challenges WHERE token = ?');
+  const rows = getDb().prepare('SELECT token, category, data FROM random_pool').all() as {
+    token: string;
+    category: string;
+    data: string;
+  }[];
+  const del = getDb().prepare('DELETE FROM random_pool WHERE token = ?');
   let removed = 0;
   for (const r of rows) {
+    if (r.category === 'wild') continue;
+    const list = isCategory(r.category) ? CATEGORY_ARTISTS[r.category as Exclude<Category, 'wild'>] : null;
+    const known = new Set(list?.map(normName));
     const d = JSON.parse(r.data) as Stored;
-    if (!known.has(normName(d.start.name)) || !known.has(normName(d.target.name))) {
+    if (!list || !known.has(normName(d.start.name)) || !known.has(normName(d.target.name))) {
       del.run(r.token);
       removed++;
     }
@@ -138,34 +156,43 @@ export function purgeStalePool(): number {
 
 export function refillPool(): Promise<void> {
   filling ??= (async () => {
-    try {
-      for (let i = 0; poolSize() < POOL_TARGET && i < POOL_TARGET * 2; i++) await generateRandom();
-    } catch (e) {
-      console.error('Uzupełnianie puli nie powiodło się:', e);
+    for (const { id: category } of CATEGORIES) {
+      try {
+        for (let i = 0; poolSize(category) < POOL_TARGET && i < POOL_TARGET * 2; i++) await generateRandom(category);
+      } catch (e) {
+        console.error(`Uzupełnianie puli (${category}) nie powiodło się:`, e);
+      }
     }
   })().finally(() => (filling = null));
   return filling;
 }
 
-function readRandom(token: string): Stored | null {
-  const row = getDb().prepare('SELECT data FROM random_challenges WHERE token = ?').get(token) as
-    | { data: string }
+function readRandom(token: string): (Stored & { category: Category }) | null {
+  const row = getDb().prepare('SELECT category, data FROM random_pool WHERE token = ?').get(token) as
+    | { category: Category; data: string }
     | undefined;
-  return row ? (JSON.parse(row.data) as Stored) : null;
+  return row ? { ...(JSON.parse(row.data) as Stored), category: row.category } : null;
 }
 
-export async function getRandom(exclude: string[] = []): Promise<Challenge | null> {
-  const rows = getDb().prepare('SELECT token FROM random_challenges').all() as { token: string }[];
+export async function getRandom(category: Category, exclude: string[] = []): Promise<Challenge | null> {
+  const rows = getDb().prepare('SELECT token FROM random_pool WHERE category = ?').all(category) as { token: string }[];
   const fresh = rows.map((r) => r.token).filter((t) => !exclude.includes(t));
-  let token = fresh.length ? fresh[Math.floor(Math.random() * fresh.length)] : await generateRandom();
+  const token = fresh.length ? fresh[Math.floor(Math.random() * fresh.length)] : await generateRandom(category);
   void refillPool();
   if (!token) return null;
-  return toChallenge(`random:${token}`, readRandom(token)!);
+  return toChallenge(`random:${token}`, category, readRandom(token)!);
+}
+
+/** Id wyzwania dnia albo null; daty z przyszłości traktujemy jak niedostępne. */
+export function parseDailyId(id: string): { date: string; category: Category } | null {
+  const [kind, date, category] = id.split(':');
+  return kind === 'daily' && isDate(date) && isCategory(category) ? { date, category } : null;
 }
 
 export async function getSolution(id: string): Promise<PathStep[] | null> {
-  const [kind, key] = id.split(':');
-  if (kind === 'daily' && isDate(key)) return (await ensureDaily(key))?.path ?? null;
-  if (kind === 'random') return readRandom(key)?.path ?? null;
+  const daily = parseDailyId(id);
+  if (daily) return (await ensureDaily(daily.date, daily.category))?.path ?? null;
+  const [kind, token] = id.split(':');
+  if (kind === 'random') return readRandom(token)?.path ?? null;
   return null;
 }

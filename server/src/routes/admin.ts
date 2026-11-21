@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
-import type { AdminPreview, Artist } from '@onthefeat/shared';
+import { isCategory, type AdminPreview, type Artist } from '@onthefeat/shared';
 import { deezer } from '../deezer/client.ts';
 import { toArtist } from '../deezer/normalize.ts';
 import { deleteDaily, isDate, listDaily, setDaily } from '../game/challenges.ts';
@@ -51,17 +51,17 @@ export const adminRoutes = new Hono()
     if (!p) return c.json({ error: 'Wybierz dwóch różnych wykonawców' }, 400);
     return c.json(preview(await shortestPath(p[0], p[1], { budget: 300 })));
   })
-  .put('/daily/:date', async (c) => {
-    const date = c.req.param('date');
-    if (!isDate(date)) return c.json({ error: 'Zła data' }, 400);
+  .put('/daily/:date/:category', async (c) => {
+    const { date, category } = c.req.param();
+    if (!isDate(date) || !isCategory(category)) return c.json({ error: 'Zła data lub kategoria' }, 400);
     const p = await pair(await c.req.json());
     if (!p) return c.json({ error: 'Wybierz dwóch różnych wykonawców' }, 400);
-    const stored = await setDaily(date, p[0], p[1]);
+    const stored = await setDaily(date, category, p[0], p[1]);
     return c.json(preview(stored.path));
   })
-  .delete('/daily/:date', (c) => {
-    const date = c.req.param('date');
-    if (!isDate(date)) return c.json({ error: 'Zła data' }, 400);
-    deleteDaily(date);
+  .delete('/daily/:date/:category', (c) => {
+    const { date, category } = c.req.param();
+    if (!isDate(date) || !isCategory(category)) return c.json({ error: 'Zła data lub kategoria' }, 400);
+    deleteDaily(date, category);
     return c.json({ ok: true });
   });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Artist } from '@onthefeat/shared';
 import { shortestPath, type Edge } from '../src/game/graph.ts';
-import { generatePair, rng } from '../src/game/generator.ts';
+import { generatePoolPair, generateWildPair, rng } from '../src/game/generator.ts';
 
 // A - B - C - D - E, plus skrót A - X - E
 const names = ['A', 'B', 'C', 'D', 'E', 'X', 'F'];
@@ -27,14 +27,25 @@ describe('shortestPath', () => {
   });
 });
 
-describe('generatePair', () => {
+describe('generatePoolPair', () => {
   it('nie zwraca par połączonych bezpośrednio', async () => {
     for (let seed = 1; seed < 20; seed++) {
-      const p = await generatePair({ random: rng(seed), neighborFn, pool: async () => Object.values(art) });
+      const p = await generatePoolPair({ random: rng(seed), neighborFn, pool: async () => Object.values(art) });
       expect(p).not.toBeNull();
       expect(p!.path.length).toBeGreaterThanOrEqual(2);
       expect(names).toContain(p!.start.name);
       expect(names).toContain(p!.target.name);
     }
+  });
+});
+
+describe('generateWildPair', () => {
+  it('generuje parę ze ścieżką ≥ minLength i powtarzalnie dla tego samego ziarna', async () => {
+    const opts = (seed: number) => ({ random: rng(seed), neighborFn, minLength: 2, pool: async () => [art.A] });
+    const p1 = await generateWildPair(opts(7));
+    const p2 = await generateWildPair(opts(7));
+    expect(p1).not.toBeNull();
+    expect(p1!.path.length).toBeGreaterThanOrEqual(2);
+    expect(p2).toEqual(p1);
   });
 });

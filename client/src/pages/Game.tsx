@@ -1,12 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { MoveFailReason, TrackResult } from '@onthefeat/shared';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CATEGORIES, isCategory, type Category, type MoveFailReason, type TrackResult } from '@onthefeat/shared';
 import { api } from '../api.ts';
 import { Matchup } from '../components/ArtistChips.tsx';
 import { PlayerPath } from '../components/PathGraph.tsx';
 import { ProgressGraph } from '../components/ProgressGraph.tsx';
 import { SearchBox } from '../components/SearchBox.tsx';
 import { WinScreen } from '../components/WinScreen.tsx';
-import { markRandomPlayed, playedRandom, useGame } from '../state/gameStore.ts';
+import {
+  loadSaved,
+  markRandomPlayed,
+  playedRandom,
+  saveCategory,
+  savedCategory,
+  todayWarsaw,
+  useGame,
+} from '../state/gameStore.ts';
 
 type Mode = 'daily' | 'random';
 
@@ -18,6 +26,11 @@ const REASONS: Record<MoveFailReason, string> = {
 
 export function Game() {
   const [mode, setMode] = useState<Mode>('daily');
+  const [category, setCategory] = useState<Category>(() => {
+    const c = savedCategory();
+    return isCategory(c) ? c : 'pl-hits';
+  });
+  const requestId = useRef(0);
   const { state, dispatch, start } = useGame();
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -25,26 +38,46 @@ export function Game() {
   const [toast, setToast] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null);
 
   const load = useCallback(
-    async (m: Mode) => {
+    async (m: Mode, c: Category) => {
+      // Szybkie przełączanie kategorii: liczy się tylko odpowiedź na ostatnie żądanie.
+      const id = ++requestId.current;
       setLoading(true);
       setLoadError(null);
       setToast(null);
       try {
-        const ch = m === 'daily' ? await api.daily() : await api.random(playedRandom());
+        const ch = m === 'daily' ? await api.daily(c) : await api.random(c, playedRandom());
+        if (id !== requestId.current) return;
         if (m === 'random') markRandomPlayed(ch.id.slice('random:'.length));
         start(ch);
       } catch (e) {
-        setLoadError((e as Error).message);
+        if (id === requestId.current) setLoadError((e as Error).message);
       } finally {
-        setLoading(false);
+        if (id === requestId.current) setLoading(false);
       }
     },
     [start],
   );
 
   useEffect(() => {
-    void load(mode);
-  }, [mode, load]);
+    void load(mode, category);
+  }, [mode, category, load]);
+
+  const chooseCategory = (c: Category) => {
+    setCategory(c);
+    saveCategory(c);
+  };
+
+  // Które dzisiejsze wyzwania są już zakończone (✓ na zakładce kategorii).
+  const dailyDone = useMemo(() => {
+    const date = todayWarsaw();
+    return new Set(
+      CATEGORIES.filter((c) => {
+        const saved = loadSaved(`daily:${date}:${c.id}`);
+        return saved && saved.status !== 'playing';
+      }).map((c) => c.id),
+    );
+    // state w zależnościach: odświeżamy po każdym ruchu (np. wygranej)
+  }, [state]);
 
   // Po zakończeniu gry dociągamy wzorcową ścieżkę.
   useEffect(() => {
@@ -93,16 +126,33 @@ export function Game() {
         </nav>
       </header>
 
+      <nav className="categories" aria-label="Kategoria">
+        {CATEGORIES.map((c) => (
+          <button
+            key={c.id}
+            className="category"
+            aria-pressed={category === c.id}
+            onClick={() => chooseCategory(c.id)}
+          >
+            <span aria-hidden>{c.emoji}</span> {c.label}
+            {mode === 'daily' && dailyDone.has(c.id) && <span className="done" aria-label="ukończone"> ✓</span>}
+          </button>
+        ))}
+      </nav>
+
       {loading && <p className="muted center">Przygotowuję wyzwanie… (za pierwszym razem może to chwilę potrwać)</p>}
       {loadError && (
         <p className="error center">
-          {loadError} <button onClick={() => load(mode)}>Spróbuj ponownie</button>
+          {loadError} <button onClick={() => load(mode, category)}>Spróbuj ponownie</button>
         </p>
       )}
 
-      {!loading && state && (
+      {!loading && !loadError && state && (
         <main>
-          {state.challenge.date && <p className="muted center">Wyzwanie z dnia {state.challenge.date}</p>}
+          <p className="muted center">
+            {CATEGORIES.find((c) => c.id === state.challenge.category)?.description}
+            {state.challenge.date && ` · wyzwanie z dnia ${state.challenge.date}`}
+          </p>
           <Matchup start={state.challenge.start} target={state.challenge.target} won={state.status === 'won'} />
 
           <div className="stats">
@@ -125,7 +175,7 @@ export function Game() {
           {toast && <p className={`toast toast-${toast.kind}`}>{toast.text}</p>}
 
           {state.status !== 'playing' && (
-            <WinScreen state={state} onNext={mode === 'random' ? () => load('random') : undefined} />
+            <WinScreen state={state} onNext={mode === 'random' ? () => load('random', category) : undefined} />
           )}
 
           <div className={`layout ${state.status !== 'playing' ? 'layout-done' : ''}`}>

@@ -36,16 +36,20 @@ npm workspaces: `shared/` (same typy DTO, importowane jako `@onthefeat/shared`),
 **Zasady gry** (`game/validate.ts`): ruch jest poprawny, gdy w utworze występuje któryś z już odkrytych wykonawców (dowolny, nie tylko ostatni) i ktoś nowy. Walidacja jest bezstanowa: klient wysyła listę odkrytych id.
 
 **Uczciwość wyszukiwania** to kluczowy wymóg produktu. Gracz nie może wpisać odkrytego wykonawcy i przeglądać jego utworów w poszukiwaniu połączeń:
-- `/api/search/tracks` używa zwykłego wyszukiwania Deezera (składnia `track:"..."`/`artist:"..."` jest przez Deezera ignorowana) i filtruje wyniki w `rankByTitle`: każde słowo musi pasować do tytułu albo do NIEodkrytego głównego wykonawcy, a co najmniej jedno do tytułu. Wyniki pokazują tytuł oczyszczony z „feat.” i tylko głównego wykonawcę;
-- `/api/search/artists` pomija odkrytych (także duplikaty i nazwy złożone zawierające odkrytego);
-- `/api/artist/:id/tracks` zwraca 403 dla odkrytego wykonawcy;
-- minimum 3 znaki, maksymalnie 10 wyników.
+- jest jedno wyszukiwanie w stylu Spotify, `/api/search/tracks`: tytuł i wykonawca naraz („bang szczyl”), wynikiem jest jedna lista utworów;
+- Deezer ignoruje składnię `track:"..."`/`artist:"..."`, więc serwer szuka zwykłym zapytaniem i sam filtruje w `routes/search.ts#rankTracks`;
+- każde wpisane słowo musi być początkiem słowa z tytułu (bez „feat.”) albo z nazwy NIEodkrytego głównego wykonawcy; nazwy odkrytych (`isBlocked`, także duplikaty i nazwy złożone) niczego nie dopasowują, a goście nie są przeszukiwani;
+- pasujące tytuły z topów odkrytych wykonawców trafiają na górę, bo popularne tytuły zasypują ich utwory;
+- wyniki pokazują tylko tytuł oczyszczony z „feat.” i głównego wykonawcę; minimum 3 znaki, maksymalnie 12 wyników.
 
-**Generowanie par** (`game/generator.ts`, `game/graph.ts`, `game/challenges.ts`):
+**Kategorie i generowanie par** (`shared` → `CATEGORIES`; `data/categories.ts`, `game/generator.ts`, `game/graph.ts`, `game/challenges.ts`):
+- Kategorie: `rap` (polski i zagraniczny), `pl-hits`, `foreign-pop`, `wild` („Dzicz”). Pule wykonawców są w `data/categories.ts`.
 - Graf współpracy budowany jest leniwie z `/artist/{id}/top` i cachowany (`nb:<nazwa>`). Pomija wykonawców złożonych, więc jest podzbiorem ruchów akceptowanych przez walidację.
 - `shortestPath` to dwukierunkowy BFS z budżetem rozwinięć, więc `optimalLength` znaczy „najkrótsza znana ścieżka”.
-- Wyzwanie dnia: wpis admina albo `generateFamousPair`. Oba końce pochodzą z ręcznej listy bardzo znanych wykonawców (`data/seed-artists.ts#FAMOUS_ARTISTS`) i nie mogą być połączone bezpośrednio (ścieżka ≥ 2). Ziarno PRNG to data (Europe/Warsaw), wynik zapisuje się w `daily_challenges`. Serwer co godzinę przygotowuje w tle wyzwanie na dziś i jutro (`warmDaily`), bo na zimnym cache generowanie trwa nawet ~80 s.
-- Tryb losowy: ten sam `generatePair`, ale z szerszej puli `SEED_ARTISTS` (oba końce z listy, ścieżka ≥ 2). Gotowe pary leżą w puli `random_challenges`, uzupełnianej w tle. Przy starcie `purgeStalePool` usuwa pary, których końców nie ma już na liście, więc listę można bezpiecznie edytować.
+- `generatePair(category)`: dla kategorii z listą oba końce pochodzą z puli i nie mogą być połączone bezpośrednio (ścieżka ≥ 2). „Dzicz” (`generateWildPair`) robi losowy spacer od znanego wykonawcy: 1–3 kroki do startu, potem 4–6 kroków do celu, ścieżka ≥ 3.
+- Wyzwanie dnia: jedno na kategorię (tabela `daily`, klucz `(date, category)`, id `daily:<data>:<kategoria>`). Źródłem jest wpis admina albo generator z ziarnem PRNG = id. Serwer co godzinę przygotowuje w tle dzisiejsze i jutrzejsze wyzwania wszystkich kategorii (`warmDaily`), bo na zimnym cache generowanie trwa nawet ~80 s.
+- Tryb losowy: pula `random_pool` per kategoria, uzupełniana w tle. `purgeStalePool` przy starcie usuwa pary, których końców nie ma już na liście kategorii.
+- `cache.ts#migrate` przenosi dane ze starego schematu (sprzed kategorii).
 - Przyszłe wyzwania dnia i ich rozwiązania są ukryte przed graczami (403).
 
-**Klient**: bez routera (`main.tsx` sprawdza, czy ścieżka to `/admin`). Stan gry trzyma `state/gameStore.ts` (reducer), zapisywany w `localStorage` pod `onthefeat:game:<challengeId>`. Postęp pokazuje `components/ProgressGraph.tsx` (`react-force-graph-2d`): węzły to wykonawcy (klucz = znormalizowana nazwa, jak na serwerze), krawędzie to utwory, a start i cel są przypięte (`fx`/`fy`) na przeciwnych krańcach. `SearchBox` to jedno pole: utwory i nieodkryci wykonawcy naraz, a klik w wykonawcę zawęża pole do jego utworów.
+**Klient**: bez routera (`main.tsx` sprawdza, czy ścieżka to `/admin`). Wybrana kategoria jest pamiętana w `localStorage`. Stan gry trzyma `state/gameStore.ts` (reducer), zapisywany w `localStorage` pod `onthefeat:game:<challengeId>`. Postęp pokazuje `components/ProgressGraph.tsx` (`react-force-graph-2d`): węzły to wykonawcy (klucz = znormalizowana nazwa, jak na serwerze), krawędzie to utwory, a start i cel są przypięte (`fx`/`fy`) na przeciwnych krańcach. `SearchBox` to jedno pole i jedna lista utworów (combobox z nawigacją klawiaturą i podświetleniem dopasowań).

@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import { CATEGORIES } from '@onthefeat/shared';
 import type { GameState } from '../state/gameStore.ts';
 import { SolutionPath } from './PathGraph.tsx';
 
 function shareText(s: GameState): string {
   const { challenge: c } = s;
-  const head = c.date ? `On the Feat ${c.date}` : 'On the Feat (losowe)';
+  const cat = CATEGORIES.find((x) => x.id === c.category);
+  const head = `On the Feat ${cat ? `${cat.emoji} ${cat.label}` : ''} ${c.date ?? '(losowe)'}`.replace(/\s+/g, ' ');
   const result =
     s.status === 'won'
       ? `✅ ${s.steps.length} ${s.steps.length === 1 ? 'utwór' : 'utworów'}${c.optimalLength ? ` (optimum ${c.optimalLength})` : ''}`

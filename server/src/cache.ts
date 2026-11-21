@@ -13,18 +13,35 @@ export function getDb(): DatabaseSync {
       value TEXT NOT NULL,
       expires_at INTEGER NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS daily_challenges (
-      date TEXT PRIMARY KEY,
+    CREATE TABLE IF NOT EXISTS daily (
+      date TEXT NOT NULL,
+      category TEXT NOT NULL,
       data TEXT NOT NULL,
-      source TEXT NOT NULL
+      source TEXT NOT NULL,
+      PRIMARY KEY (date, category)
     );
-    CREATE TABLE IF NOT EXISTS random_challenges (
+    CREATE TABLE IF NOT EXISTS random_pool (
       token TEXT PRIMARY KEY,
+      category TEXT NOT NULL,
       data TEXT NOT NULL,
       created_at INTEGER NOT NULL
     );
   `);
+  migrate(db);
   return db;
+}
+
+/** Migracja ze schematu sprzed kategorii: dawne wyzwania dnia trafiają do „polskich hitów”, stara pula losowa znika. */
+function migrate(db: DatabaseSync): void {
+  const has = (t: string) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t);
+  if (has('daily_challenges')) {
+    db.exec(`
+      INSERT OR IGNORE INTO daily (date, category, data, source)
+        SELECT date, 'pl-hits', data, source FROM daily_challenges;
+      DROP TABLE daily_challenges;
+    `);
+  }
+  if (has('random_challenges')) db.exec('DROP TABLE random_challenges;');
 }
 
 export function cacheGet<T>(key: string): T | undefined {
